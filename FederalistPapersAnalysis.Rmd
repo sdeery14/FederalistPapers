@@ -1,0 +1,316 @@
+---
+title: "Sean_Deery_HW4"
+author: "Sean Deery"
+date: "2023-05-02"
+output: pdf_document
+---
+
+# Read in the Data
+
+```{r}
+# Read in the data
+fedpapers <- read.csv('fedPapers85.csv')
+# Show the structure
+str(fedpapers)
+# set the random seed
+set.seed(1234)
+```
+
+# Data Cleaning
+
+##Data Types
+
+```{r}
+# Make the file names the row names.
+rownames(fedpapers) <- fedpapers[,2]
+# delete the filename column
+fedpapers[,'filename'] <- NULL
+# select the authors for analysis
+fedpapers <- fedpapers[fedpapers$author %in% c('Hamilton', 'Madison', 'dispt'),]
+# convert author to a factor
+fedpapers$author <- as.factor(fedpapers$author)
+# Show the structure
+str(fedpapers[,1:5])
+```
+
+## Missing Values
+
+There are no missing values.
+
+```{r}
+any(is.na(fedpapers))
+```
+
+
+## Remove infrequently used words
+
+```{r}
+# Load tidyverse
+library(tidyverse)
+
+#create a dataframe for each author
+papersHam <- fedpapers[fedpapers$author == "Hamilton",]
+papersMadison <- fedpapers[fedpapers$author == "Madison",]
+
+#this function finds the average tf-idf of a word for a specific author
+createWordMean <- function(x) {
+  y <- ncol(x)
+  x <- colMeans(x[,2:y])
+  newVec_1 <- c()
+  for (i in 1:length(x)) {
+    newVec_1[i] <- x[[i]]
+  }
+  print(newVec_1)
+}
+
+#run the function on each subsetted dataframe
+hamiltonVector <- createWordMean(papersHam)
+mad_Vector <- createWordMean(papersMadison)
+
+#get the column names
+columns <- colnames(papersHam)
+
+#put the results into a dataframe
+newFrame <- data.frame(rbind(hamiltonVector, mad_Vector))
+
+#name the columns of the new df their corresponding words
+colnames(newFrame) <- columns[2:length(columns)]
+
+#the dataframe is the average tfidf of a word for each author
+newFrame[,1:3]
+
+#find the variance of each column (word)
+wordVariance <- sapply(newFrame, var)
+#order and plot the results
+ordered <- sort(wordVariance, decreasing = TRUE)
+plot(ordered, main="Word Variance")
+
+#set the good words as the top 40% of words
+goodWords <- data.frame(ordered[1:(length(ordered)*2/5)])
+#number of words chosen
+length(rownames(goodWords))
+
+#words chosen
+rownames(goodWords)
+
+#create a new data frame of only the "good words"
+fedpapers <- fedpapers[,c("author",rownames(goodWords))]
+```
+
+
+
+
+
+
+
+
+
+
+
+# EDA
+
+```{r}
+# Load ggplot2
+library(ggplot2)
+```
+
+
+## Authors
+
+```{r}
+# Get a summary of author variable
+summary(fedpapers$author)
+# Get percentages for each author
+(summary(fedpapers$author)/sum(summary(fedpapers$author)))*100
+# Create a barplot of customer sex
+fedpapers %>% ggplot(aes(x=author)) + geom_bar(position="dodge") + 
+  ggtitle("Authors") + xlab("Author") + ylab("Count") + theme(plot.title = element_text(hjust=0.5))
+```
+
+
+
+## Wordclouds
+
+### All Documents
+
+```{r}
+# load the wordcloud library
+library(wordcloud)
+
+# Wordcloud for all the documents
+wordcloud<- wordcloud(colnames(fedpapers[,-1]), colSums(fedpapers[,-1]), min.freq = 1, max.words=200, random.order=FALSE, rot.per=0.35, colors=brewer.pal(8, "Dark2"))
+```
+
+
+
+### Hamilton's Documents
+
+```{r}
+# Wordcloud for Hamilton's documents
+wordcloud<- wordcloud(colnames(fedpapers[,-1]), colSums(fedpapers[fedpapers$author=="Hamilton",-1]), min.freq = 1, max.words=200, random.order=FALSE, rot.per=0.35, colors=brewer.pal(8, "Dark2"))
+```
+
+### Madison's documents
+
+```{r}
+# Wordcloud for Madison's documents
+wordcloud<- wordcloud(colnames(fedpapers[,-1]), colSums(fedpapers[fedpapers$author=="Madison",-1]), min.freq = 1, max.words=200, random.order=FALSE, rot.per=0.35, colors=brewer.pal(8, "Dark2"))
+```
+
+### Disputed documents
+
+```{r}
+# Wordcloud for disputed's documents
+wordcloud<- wordcloud(colnames(fedpapers[,-1]), colSums(fedpapers[fedpapers$author=="dispt",-1]), min.freq = 1, max.words=200, random.order=FALSE, rot.per=0.35, colors=brewer.pal(8, "Dark2"))
+```
+
+
+
+
+
+# Analysis
+
+## Clustering
+
+### K-Means
+
+```{r}
+# load the factoextra library for the elbow method
+library(factoextra)
+#Use "elbow method" to find optimal cluster amount
+fviz_nbclust(fedpapers[,-1], kmeans, method = "wss", k.max = 25) +
+labs(subtitle = "Elbow method")
+# Remove author names from dataset and run k means to generate the clusters
+km_clusters <- kmeans(fedpapers[,-1], 7)
+# Display the total sum of squares
+km_clusters$totss
+# Create a dataframe for the K Means analysis
+fedpapers_km <- fedpapers
+# Add the clusters to fedpapers_km
+fedpapers_km$cluster <- as.factor(km_clusters$cluster)
+# import cluster to create a cluster plot
+library(cluster)
+# create a cluster plot based off of k means
+clusplot(fedpapers_km[,-1], fedpapers_km$cluster, color=TRUE, shade=TRUE, labels=1, lines=0)
+# Create a bar plot of author and documents, showing the cluster assignment
+ggplot(data=fedpapers_km, aes(x=author, fill=cluster)) +
+  geom_bar(stat="count") +
+  labs(title = "K = 7") +
+  theme(plot.title = element_text(hjust=0.5), text=element_text(size=15))
+```
+
+```{r}
+# Get the disputed papers associated with Hamilton
+fedpapers_km[fedpapers_km$cluster %in% c(1, 4) & fedpapers_km$author=='dispt',c('author', 'cluster')]
+```
+
+```{r}
+# Get the disputed papers associated with Madison
+fedpapers_km[fedpapers_km$cluster %in% c(6, 7) & fedpapers_km$author=='dispt', c('author', 'cluster')]
+```
+
+
+
+### Hierarchical Clusting Algorithms (HAC)
+
+#### HAC - Distance: Euclidean, Method: Single
+
+```{r}
+# Create a dataframe for the HAC analysis
+fedpapers_hac <- fedpapers
+# Calculate distance with different measures
+euclidean_dist <- dist(fedpapers_hac[,-1], method = "euclidean")
+maximum_dist <- dist(fedpapers_hac[,-1], method = "maximum")
+manhattan_dist <- dist(fedpapers_hac[,-1], method = "manhattan")
+canberra_dist <- dist(fedpapers_hac[,-1], method = "canberra")
+binary_dist <- dist(fedpapers_hac[,-1], method = "binary")
+minkowski_dist <- dist(fedpapers_hac[,-1], method = "minkowski")
+```
+
+
+```{r}
+# Run the hclust function to generate the clusters
+hc_clusters <- hclust(euclidean_dist, method="single")
+# plot the cluster on a dendogram
+plot(hc_clusters, cex=0.6, hang=-1)
+# create boxes around each cluster
+rect.hclust(hc_clusters, k = 7, border=2:5)
+# collect the clusters
+cut_hc <- cutree(hc_clusters, k = 7)
+# add the cluster assignment to fedpapers_hac
+fedpapers_hac$cluster <- as.factor(cut_hc)
+# Create a bar plot of author and documents, showing the cluster assignment
+ggplot(data=fedpapers_hac, aes(x=author, fill=cluster)) +
+  geom_bar(stat="count") +
+  labs(title = "K = 7") +
+  theme(plot.title = element_text(hjust=0.5), text=element_text(size=15))
+```
+
+#### HAC - Distance: Euclidean, Method: Complete
+
+```{r}
+# Run the hclust function to generate the clusters
+hc_clusters <- hclust(euclidean_dist, method="complete")
+# plot the cluster on a dendogram
+plot(hc_clusters, cex=0.6, hang=-1)
+# create boxes around each cluster
+rect.hclust(hc_clusters, k = 7, border=2:5)
+# collect the clusters
+cut_hc <- cutree(hc_clusters, k = 7)
+# add the cluster assignment to fedpapers_hac
+fedpapers_hac$cluster <- as.factor(cut_hc)
+# Create a bar plot of author and documents, showing the cluster assignment
+ggplot(data=fedpapers_hac, aes(x=author, fill=cluster)) +
+  geom_bar(stat="count") +
+  labs(title = "K = 7") +
+  theme(plot.title = element_text(hjust=0.5), text=element_text(size=15))
+```
+
+```{r}
+# Get the disputed papers associated with Hamilton
+fedpapers_hac[fedpapers_hac$cluster %in% c(4) & fedpapers_hac$author=='dispt',c('author', 'cluster')]
+```
+
+```{r}
+# Get the disputed papers associated with Madison
+fedpapers_hac[fedpapers_hac$cluster %in% c(1,2,3) & fedpapers_hac$author=='dispt', c('author', 'cluster')]
+```
+
+
+## Decision Tree
+
+
+```{r}
+# Load the RWeka library
+library(RWeka)
+```
+
+
+```{r}
+# split the dataset into training (Madison and Hamilton) and test (dispt) datasets
+fedpapers_dt_train <- droplevels(fedpapers[fedpapers$author!='dispt',])
+fedpapers_dt_dispt <- fedpapers[fedpapers$author=='dispt',]
+```
+
+
+
+```{r}
+# Build decision tree model
+m=J48(author~., data = fedpapers_dt_train, control=Weka_control(U=FALSE, M=2, C=0.3))
+# View parameters with function WOW: 
+#WOW("J48")
+# Use 10 fold cross-validation to evaluate the model
+e <- evaluate_Weka_classifier(m, numFolds = 10, seed = 1, class = TRUE)
+e
+# Show the information gain for each word
+sort(InfoGainAttributeEval(author ~ . , data = fedpapers_dt_train), decreasing=TRUE)[1:9]
+## visualization with the partykit package
+if(require("partykit", quietly = TRUE)) plot(m)
+# Apply the model with test dataset
+pred=predict(m, newdata = fedpapers_dt_dispt, type = c("class"))
+fedpapers_dt_dispt$pred <- pred
+fedpapers_dt_dispt[,c("author", "pred")]
+```
+
+
+
